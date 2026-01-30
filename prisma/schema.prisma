@@ -156,7 +156,7 @@ model ChatMessage {
   sessionId  String
   role       String
   content    String
-  sources    Json?
+  context    Json?
   createdAt  DateTime    @default(now())
   session    ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 

@@ -161,10 +161,9 @@ ${message}
 
     // 6. AI 응답 저장
     const aiMsgId = crypto.randomUUID()
-    const sourcesJson = JSON.stringify(sources)
     await db.$executeRaw`
-      INSERT INTO chat_messages (id, "sessionId", role, content, sources, "createdAt")
-      VALUES (${aiMsgId}, ${currentSessionId}, 'assistant', ${aiResponse}, ${sourcesJson}::jsonb, ${new Date()})
+      INSERT INTO chat_messages (id, "sessionId", role, content, "createdAt")
+      VALUES (${aiMsgId}, ${currentSessionId}, 'assistant', ${aiResponse}, ${new Date()})
     `
 
     // 세션 제목 업데이트 (첫 메시지인 경우)

@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
 
     // 메시지 조회
     const messages: any[] = await db.$queryRaw`
-      SELECT role, content, sources, "createdAt"
+      SELECT role, content, "createdAt"
       FROM chat_messages
       WHERE "sessionId" = ${sessionId}
       ORDER BY "createdAt" ASC

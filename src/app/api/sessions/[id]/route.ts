@@ -18,7 +18,7 @@ export async function GET(
 
     // 세션 확인
     const sessions: any[] = await db.$queryRaw`
-      SELECT id, title, "meetingId", "projectId", "createdAt"
+      SELECT id, title, "meetingId", "createdAt"
       FROM chat_sessions
       WHERE id = ${id} AND "userId" = ${session.user.id}
     `
@@ -29,7 +29,7 @@ export async function GET(
 
     // 메시지 조회
     const messages: any[] = await db.$queryRaw`
-      SELECT id, role, content, sources, "createdAt"
+      SELECT id, role, content, "createdAt"
       FROM chat_messages
       WHERE "sessionId" = ${id}
       ORDER BY "createdAt" ASC
@@ -39,8 +39,7 @@ export async function GET(
       session: sessions[0],
       messages: messages.map(m => ({
         role: m.role,
-        content: m.content,
-        sources: m.sources
+        content: m.content
       }))
     })
   } catch (error) {

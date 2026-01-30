@@ -155,6 +155,36 @@ export default function Home() {
     setSidebarOpen(false)
   }
 
+  const exportChat = async (format: 'markdown' | 'json' = 'markdown') => {
+    if (!currentSessionId) {
+      alert('저장된 대화만 내보낼 수 있습니다.')
+      return
+    }
+
+    try {
+      const res = await fetch('/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: currentSessionId, format })
+      })
+
+      if (!res.ok) throw new Error('Export failed')
+
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `대화_${new Date().toISOString().slice(0, 10)}.${format === 'markdown' ? 'md' : 'json'}`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (e) {
+      console.error('Export error:', e)
+      alert('내보내기에 실패했습니다.')
+    }
+  }
+
   const loadSession = async (sessionId: string) => {
     try {
       const res = await fetch(`/api/sessions/${sessionId}`)
@@ -563,13 +593,26 @@ export default function Home() {
 
         {/* 메인 영역 */}
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white lg:rounded-tl-2xl lg:border-l lg:border-gray-100">
-          {(selectedProject || selectedMeeting) && (
-            <div className="px-4 py-2.5 bg-indigo-50 border-b border-indigo-100">
-              <p className="text-xs font-medium text-indigo-600">
-                🎯 {selectedProject && projects.find(p => p.id === selectedProject)?.name}
+          {/* 상단 액션 바 */}
+          {(messages.length > 0 || selectedProject || selectedMeeting) && (
+            <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+              <p className="text-xs font-medium text-gray-500">
+                {selectedProject && `🎯 ${projects.find(p => p.id === selectedProject)?.name}`}
                 {selectedProject && selectedMeeting && ' › '}
                 {selectedMeeting && meetings.find(m => m.id === selectedMeeting)?.title}
+                {!selectedProject && !selectedMeeting && messages.length > 0 && '대화 중...'}
               </p>
+              {messages.length > 0 && currentSessionId && (
+                <button
+                  onClick={() => exportChat('markdown')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  내보내기
+                </button>
+              )}
             </div>
           )}
 

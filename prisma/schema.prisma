@@ -11,22 +11,36 @@ datasource db {
 }
 
 model Meeting {
-  id        String   @id
-  title     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                String    @id
+  userId            String
+  title             String
+  description       String?
+  duration          Int?
+  status            String    @default("processing")
+  language          String    @default("ko")
+  audioUrl          String?
+  audioSize         Int?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  completedAt       DateTime?
+  completedChunks   Int?      @default(0)
+  isChunked         Boolean   @default(false)
+  totalAudioSize    Int?
+  totalChunks       Int?
+  transcribedChunks Int?      @default(0)
 
   @@map("meetings")
 }
 
 model SearchIndex {
-  id         String   @id
+  id         String                        @id
   entityType String
   entityId   String
   content    String
   metadata   Json?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  embedding  Unsupported("vector")?
+  createdAt  DateTime                      @default(now())
+  updatedAt  DateTime                      @updatedAt
 
   @@map("search_index")
 }

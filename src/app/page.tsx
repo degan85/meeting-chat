@@ -389,6 +389,9 @@ export default function Home() {
                   <div className="mb-8">
                     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
                       <div className="flex items-center gap-3">
+                        <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center">
+                          <span className="text-emerald-600 text-xs font-bold">A</span>
+                        </div>
                         <div className="flex gap-1">
                           <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" />
                           <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />

@@ -56,6 +56,7 @@ export default function Home() {
   const [currentSessionId, setCurrentSessionId] = useState<string>('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<'history' | 'bookmarks' | 'filter'>('history')
+  const [isListening, setIsListening] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -154,6 +155,44 @@ export default function Home() {
     ])
     setCurrentSessionId('')
     setSidebarOpen(false)
+  }
+
+  const startVoiceInput = () => {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      alert('이 브라우저는 음성 인식을 지원하지 않습니다.')
+      return
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    const recognition = new SpeechRecognition()
+    
+    recognition.lang = 'ko-KR'
+    recognition.continuous = false
+    recognition.interimResults = false
+
+    recognition.onstart = () => {
+      setIsListening(true)
+    }
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript
+      setInput(prev => prev + transcript)
+      setIsListening(false)
+    }
+
+    recognition.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error)
+      setIsListening(false)
+      if (event.error === 'not-allowed') {
+        alert('마이크 권한이 필요합니다.')
+      }
+    }
+
+    recognition.onend = () => {
+      setIsListening(false)
+    }
+
+    recognition.start()
   }
 
   const exportChat = async (format: 'markdown' | 'json' = 'markdown') => {
@@ -763,16 +802,32 @@ export default function Home() {
           {/* 입력 영역 */}
           <div className="border-t border-gray-200 bg-gray-50 p-4 shrink-0">
             <div className="max-w-4xl mx-auto">
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="회의 내용에 대해 질문하세요..."
-                  className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 shadow-sm transition-all"
-                  disabled={isLoading}
-                />
+              <div className="flex gap-2">
+                <div className="flex-1 flex gap-2">
+                  <input
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="회의 내용에 대해 질문하세요..."
+                    className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 shadow-sm transition-all"
+                    disabled={isLoading}
+                  />
+                  <button
+                    onClick={startVoiceInput}
+                    disabled={isLoading || isListening}
+                    className={`p-3 rounded-xl transition-all shadow-sm ${
+                      isListening 
+                        ? 'bg-red-500 text-white animate-pulse' 
+                        : 'bg-white border border-gray-200 text-gray-500 hover:text-indigo-600 hover:border-indigo-200'
+                    }`}
+                    title="음성으로 입력하기"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                    </svg>
+                  </button>
+                </div>
                 <button
                   onClick={sendMessage}
                   disabled={isLoading || !input.trim()}

@@ -18,6 +18,12 @@ interface Meeting {
   createdAt: string
 }
 
+interface Project {
+  id: string
+  name: string
+  color: string
+}
+
 export default function Home() {
   const { data: session, status } = useSession()
   const router = useRouter()
@@ -25,7 +31,9 @@ export default function Home() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [meetings, setMeetings] = useState<Meeting[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
   const [selectedMeeting, setSelectedMeeting] = useState<string>('')
+  const [selectedProject, setSelectedProject] = useState<string>('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -38,6 +46,7 @@ export default function Home() {
   useEffect(() => {
     if (session) {
       fetchMeetings()
+      fetchProjects()
     }
   }, [session])
 
@@ -56,6 +65,17 @@ export default function Home() {
     }
   }
 
+  const fetchProjects = async () => {
+    try {
+      const res = await fetch('/api/projects')
+      if (res.status === 401) return
+      const data = await res.json()
+      if (data.projects) setProjects(data.projects)
+    } catch (e) {
+      console.error('Failed to fetch projects:', e)
+    }
+  }
+
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return
 
@@ -70,7 +90,8 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: userMessage,
-          meetingId: selectedMeeting || undefined
+          meetingId: selectedMeeting || undefined,
+          projectId: selectedProject || undefined
         }),
       })
 
@@ -195,18 +216,39 @@ export default function Home() {
             </button>
           </div>
 
-          <div className="p-4 border-b border-gray-800/50">
-            <label className="text-xs font-medium text-gray-400 block mb-2">회의 선택</label>
-            <select
-              value={selectedMeeting}
-              onChange={(e) => selectMeeting(e.target.value)}
-              className="w-full bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
-            >
-              <option value="">전체 회의에서 검색</option>
-              {meetings.map(m => (
-                <option key={m.id} value={m.id}>{m.title}</option>
-              ))}
-            </select>
+          <div className="p-4 border-b border-gray-800/50 space-y-4">
+            {/* 프로젝트 선택 */}
+            <div>
+              <label className="text-xs font-medium text-gray-400 block mb-2">프로젝트</label>
+              <select
+                value={selectedProject}
+                onChange={(e) => {
+                  setSelectedProject(e.target.value)
+                  setSelectedMeeting('') // 프로젝트 변경 시 회의 선택 초기화
+                }}
+                className="w-full bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
+              >
+                <option value="">전체 프로젝트</option>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* 회의 선택 */}
+            <div>
+              <label className="text-xs font-medium text-gray-400 block mb-2">회의</label>
+              <select
+                value={selectedMeeting}
+                onChange={(e) => selectMeeting(e.target.value)}
+                className="w-full bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
+              >
+                <option value="">전체 회의에서 검색</option>
+                {meetings.map(m => (
+                  <option key={m.id} value={m.id}>{m.title}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">
@@ -238,10 +280,12 @@ export default function Home() {
 
         {/* 메인 영역 */}
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          {selectedMeeting && (
+          {(selectedProject || selectedMeeting) && (
             <div className="px-4 py-2 bg-blue-500/10 border-b border-blue-500/20 lg:hidden">
               <p className="text-xs text-blue-400">
-                🎯 {meetings.find(m => m.id === selectedMeeting)?.title}
+                🎯 {selectedProject && projects.find(p => p.id === selectedProject)?.name}
+                {selectedProject && selectedMeeting && ' > '}
+                {selectedMeeting && meetings.find(m => m.id === selectedMeeting)?.title}
               </p>
             </div>
           )}
@@ -382,9 +426,11 @@ export default function Home() {
                   전송
                 </button>
               </div>
-              {selectedMeeting && (
+              {(selectedProject || selectedMeeting) && (
                 <p className="text-xs text-gray-500 mt-2 hidden lg:block">
-                  🎯 선택된 회의: {meetings.find(m => m.id === selectedMeeting)?.title}
+                  🎯 {selectedProject && `프로젝트: ${projects.find(p => p.id === selectedProject)?.name}`}
+                  {selectedProject && selectedMeeting && ' | '}
+                  {selectedMeeting && `회의: ${meetings.find(m => m.id === selectedMeeting)?.title}`}
                 </p>
               )}
             </div>

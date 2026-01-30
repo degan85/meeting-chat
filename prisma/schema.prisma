@@ -72,8 +72,9 @@ model Meeting {
   totalChunks       Int?
   transcribedChunks Int?           @default(0)
 
-  user   User           @relation(fields: [userId], references: [id])
-  shares MeetingShare[]
+  user            User             @relation(fields: [userId], references: [id])
+  shares          MeetingShare[]
+  meetingProjects MeetingProject[]
 
   @@map("meetings")
 }
@@ -106,4 +107,32 @@ model SearchIndex {
   updatedAt  DateTime                      @updatedAt
 
   @@map("search_index")
+}
+
+model Project {
+  id          String   @id
+  ownerId     String
+  name        String
+  description String?
+  status      String   @default("PLANNING")
+  color       String?  @default("#3B82F6")
+  isArchived  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  meetingProjects MeetingProject[]
+
+  @@map("projects")
+}
+
+model MeetingProject {
+  meetingId String
+  projectId String
+  createdAt DateTime @default(now())
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([meetingId, projectId])
+  @@map("meeting_projects")
 }

@@ -175,3 +175,18 @@ export async function getMeetings(accessibleMeetingIds?: string[]) {
     throw error
   }
 }
+
+// 프로젝트에 속한 회의 ID 목록
+export async function getProjectMeetingIds(projectId: string): Promise<string[]> {
+  try {
+    const results: any[] = await db.$queryRaw`
+      SELECT "meetingId"
+      FROM meeting_projects
+      WHERE "projectId" = ${projectId}
+    `
+    return results.map(r => r.meetingId)
+  } catch (error) {
+    console.error('Get project meeting IDs error:', error)
+    return []
+  }
+}

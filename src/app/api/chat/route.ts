@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { searchByVector, searchByKeyword } from '@/lib/db'
+import { searchByVector, searchByKeyword, getProjectMeetingIds } from '@/lib/db'
 import { checkMeetingAccess, getAccessibleMeetingIds } from '@/lib/meeting-access'
 import Anthropic from '@anthropic-ai/sdk'
 
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     }
 
     const userId = session.user.id
-    const { message, meetingId } = await request.json()
+    const { message, meetingId, projectId } = await request.json()
 
     if (!message) {
       return NextResponse.json({ error: 'Message required' }, { status: 400 })
@@ -43,9 +43,15 @@ export async function POST(request: NextRequest) {
     }
 
     // 접근 가능한 회의 ID 조회
-    const accessibleMeetingIds = await getAccessibleMeetingIds(userId)
+    let accessibleMeetingIds = await getAccessibleMeetingIds(userId)
 
-    console.log(`💬 [Chat] Query: "${message.slice(0, 50)}..." | Meeting: ${meetingId || 'all'} | User: ${userId}`)
+    // 프로젝트가 선택된 경우 해당 프로젝트의 회의만 필터링
+    if (projectId) {
+      const projectMeetings = await getProjectMeetingIds(projectId)
+      accessibleMeetingIds = accessibleMeetingIds.filter(id => projectMeetings.includes(id))
+    }
+
+    console.log(`💬 [Chat] Query: "${message.slice(0, 50)}..." | Meeting: ${meetingId || 'all'} | Project: ${projectId || 'all'} | User: ${userId}`)
 
     // 1. 벡터 검색
     const searchResults = (await searchTranscripts(message, accessibleMeetingIds, meetingId)) as any[]

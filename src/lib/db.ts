@@ -8,7 +8,7 @@ declare global {
 let db: PrismaClient
 
 function createPrismaClient(): PrismaClient {
-  const connectionString = process.env.DATABASE_URL
+  const connectionString = process.env.STORAGE_DATABASE_URL || process.env.DATABASE_URL
 
   // Neon adapter 사용 (serverless 환경)
   if (connectionString?.includes('neon.tech')) {

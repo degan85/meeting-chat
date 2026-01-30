@@ -164,3 +164,17 @@ model ChatMessage {
   @@index([sessionId])
   @@map("chat_messages")
 }
+
+model Bookmark {
+  id        String   @id @default(cuid())
+  userId    String
+  messageId String
+  question  String
+  answer    String
+  sources   Json?
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("bookmarks")
+}

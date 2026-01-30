@@ -31,6 +31,15 @@ interface ChatSession {
   lastMessageAt: string
 }
 
+interface Bookmark {
+  id: string
+  question: string
+  answer: string
+  sources?: { title: string; content: string }[]
+  note?: string
+  createdAt: string
+}
+
 export default function Home() {
   const { data: session, status } = useSession()
   const router = useRouter()
@@ -40,11 +49,12 @@ export default function Home() {
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([])
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
   const [selectedMeeting, setSelectedMeeting] = useState<string>('')
   const [selectedProject, setSelectedProject] = useState<string>('')
   const [currentSessionId, setCurrentSessionId] = useState<string>('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'history' | 'filter'>('history')
+  const [activeTab, setActiveTab] = useState<'history' | 'bookmarks' | 'filter'>('history')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -58,6 +68,7 @@ export default function Home() {
       fetchMeetings()
       fetchProjects()
       fetchChatSessions()
+      fetchBookmarks()
     }
   }, [session])
 
@@ -96,6 +107,52 @@ export default function Home() {
     } catch (e) {
       console.error('Failed to fetch sessions:', e)
     }
+  }
+
+  const fetchBookmarks = async () => {
+    try {
+      const res = await fetch('/api/bookmarks')
+      if (res.status === 401) return
+      const data = await res.json()
+      if (data.bookmarks) setBookmarks(data.bookmarks)
+    } catch (e) {
+      console.error('Failed to fetch bookmarks:', e)
+    }
+  }
+
+  const addBookmark = async (question: string, answer: string, sources?: any[]) => {
+    try {
+      const res = await fetch('/api/bookmarks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, answer, sources })
+      })
+      if (res.ok) {
+        fetchBookmarks()
+        alert('저장되었습니다!')
+      }
+    } catch (e) {
+      console.error('Failed to add bookmark:', e)
+    }
+  }
+
+  const deleteBookmark = async (id: string) => {
+    if (!confirm('이 북마크를 삭제할까요?')) return
+    try {
+      await fetch(`/api/bookmarks/${id}`, { method: 'DELETE' })
+      setBookmarks(prev => prev.filter(b => b.id !== id))
+    } catch (e) {
+      console.error('Failed to delete bookmark:', e)
+    }
+  }
+
+  const loadBookmark = (bookmark: Bookmark) => {
+    setMessages([
+      { role: 'user', content: bookmark.question },
+      { role: 'assistant', content: bookmark.answer, sources: bookmark.sources }
+    ])
+    setCurrentSessionId('')
+    setSidebarOpen(false)
   }
 
   const loadSession = async (sessionId: string) => {
@@ -314,17 +371,32 @@ export default function Home() {
           <div className="flex border-b border-gray-100">
             <button
               onClick={() => setActiveTab('history')}
-              className={`flex-1 px-4 py-2.5 text-sm font-medium transition-colors ${
+              className={`flex-1 px-3 py-2.5 text-sm font-medium transition-colors ${
                 activeTab === 'history'
                   ? 'text-indigo-600 border-b-2 border-indigo-600'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              대화 기록
+              기록
+            </button>
+            <button
+              onClick={() => setActiveTab('bookmarks')}
+              className={`flex-1 px-3 py-2.5 text-sm font-medium transition-colors relative ${
+                activeTab === 'bookmarks'
+                  ? 'text-indigo-600 border-b-2 border-indigo-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              저장됨
+              {bookmarks.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 text-xs bg-indigo-100 text-indigo-600 rounded-full">
+                  {bookmarks.length}
+                </span>
+              )}
             </button>
             <button
               onClick={() => setActiveTab('filter')}
-              className={`flex-1 px-4 py-2.5 text-sm font-medium transition-colors ${
+              className={`flex-1 px-3 py-2.5 text-sm font-medium transition-colors ${
                 activeTab === 'filter'
                   ? 'text-indigo-600 border-b-2 border-indigo-600'
                   : 'text-gray-500 hover:text-gray-700'
@@ -336,7 +408,47 @@ export default function Home() {
 
           {/* 탭 내용 */}
           <div className="flex-1 overflow-y-auto">
-            {activeTab === 'history' ? (
+            {activeTab === 'bookmarks' ? (
+              <div className="p-4">
+                {bookmarks.length === 0 ? (
+                  <div className="text-center py-8">
+                    <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                      </svg>
+                    </div>
+                    <p className="text-sm text-gray-500">저장된 답변이 없어요</p>
+                    <p className="text-xs text-gray-400 mt-1">유용한 답변을 저장해보세요!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {bookmarks.map(b => (
+                      <div
+                        key={b.id}
+                        className="p-3 rounded-xl border border-gray-200 hover:border-gray-300 bg-white transition-all group cursor-pointer"
+                        onClick={() => loadBookmark(b)}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-gray-700 truncate">{b.question}</div>
+                            <div className="text-xs text-gray-500 mt-1 line-clamp-2">{b.answer.slice(0, 100)}...</div>
+                            <div className="text-xs text-gray-400 mt-1">{formatDate(b.createdAt)}</div>
+                          </div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); deleteBookmark(b.id) }}
+                            className="p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-100 rounded transition-all shrink-0"
+                          >
+                            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : activeTab === 'history' ? (
               <div className="p-4">
                 {chatSessions.length === 0 ? (
                   <div className="text-center py-8">
@@ -501,11 +613,27 @@ export default function Home() {
                       </div>
                     ) : (
                       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-                        <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center">
-                            <span className="text-emerald-600 text-xs font-bold">A</span>
+                        <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center">
+                              <span className="text-emerald-600 text-xs font-bold">A</span>
+                            </div>
+                            <span className="text-sm font-medium text-gray-600">AI 응답</span>
                           </div>
-                          <span className="text-sm font-medium text-gray-600">AI 응답</span>
+                          <button
+                            onClick={() => {
+                              const prevMsg = messages[i - 1]
+                              if (prevMsg?.role === 'user') {
+                                addBookmark(prevMsg.content, msg.content, msg.sources)
+                              }
+                            }}
+                            className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors group"
+                            title="이 답변 저장하기"
+                          >
+                            <svg className="w-5 h-5 text-gray-400 group-hover:text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                            </svg>
+                          </button>
                         </div>
                         <div className="px-5 py-5">
                           <div className="prose prose-gray prose-sm sm:prose-base max-w-none

@@ -28,7 +28,7 @@ export async function GET() {
     return NextResponse.json({
       sessions: sessions.map(s => ({
         id: s.id,
-        title: s.title || s.firstMessage?.slice(0, 30) + '...' || '새 대화',
+        title: s.title || (s.firstMessage ? s.firstMessage.slice(0, 30) + '...' : '새 대화'),
         meetingId: s.meetingId,
         createdAt: s.createdAt,
         lastMessageAt: s.lastMessageAt
@@ -53,8 +53,8 @@ export async function POST(request: NextRequest) {
     const now = new Date()
 
     await db.$executeRaw`
-      INSERT INTO chat_sessions (id, "userId", "meetingId", "createdAt", "updatedAt")
-      VALUES (${id}, ${session.user.id}, ${meetingId || null}, ${now}, ${now})
+      INSERT INTO chat_sessions (id, "userId", "meetingId", "createdAt", "updatedAt", "lastMessageAt")
+      VALUES (${id}, ${session.user.id}, ${meetingId || null}, ${now}, ${now}, ${now})
     `
 
     return NextResponse.json({ sessionId: id })

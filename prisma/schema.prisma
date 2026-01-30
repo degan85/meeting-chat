@@ -141,24 +141,30 @@ model ChatSession {
   id            String        @id @default(cuid())
   userId        String
   meetingId     String?
+  documentId    String?
   title         String?
+  context       Json?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   lastMessageAt DateTime?
   messages      ChatMessage[]
 
   @@index([userId])
+  @@index([meetingId])
+  @@index([documentId])
   @@map("chat_sessions")
 }
 
 model ChatMessage {
-  id         String      @id @default(cuid())
-  sessionId  String
-  role       String
-  content    String
-  context    Json?
-  createdAt  DateTime    @default(now())
-  session    ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id           String      @id @default(cuid())
+  sessionId    String
+  role         String
+  content      String
+  context      Json?
+  tokensUsed   Int?
+  responseTime Int?
+  createdAt    DateTime    @default(now())
+  session      ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId])
   @@map("chat_messages")
@@ -167,10 +173,9 @@ model ChatMessage {
 model Bookmark {
   id        String   @id @default(cuid())
   userId    String
-  messageId String
+  messageId String?
   question  String
   answer    String
-  sources   Json?
   note      String?
   createdAt DateTime @default(now())
 

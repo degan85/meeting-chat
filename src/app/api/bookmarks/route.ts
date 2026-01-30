@@ -12,7 +12,7 @@ export async function GET() {
     }
 
     const bookmarks: any[] = await db.$queryRaw`
-      SELECT id, question, answer, sources, note, "createdAt"
+      SELECT id, question, answer, note, "createdAt"
       FROM bookmarks
       WHERE "userId" = ${session.user.id}
       ORDER BY "createdAt" DESC
@@ -20,7 +20,11 @@ export async function GET() {
     `
 
     return NextResponse.json({ bookmarks })
-  } catch (error) {
+  } catch (error: any) {
+    // 테이블이 없으면 빈 배열 반환
+    if (error?.code === 'P2010' && error?.meta?.message?.includes('does not exist')) {
+      return NextResponse.json({ bookmarks: [] })
+    }
     console.error('Bookmarks API error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
@@ -34,7 +38,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { messageId, question, answer, sources, note } = await request.json()
+    const { messageId, question, answer, note } = await request.json()
     
     if (!question || !answer) {
       return NextResponse.json({ error: 'Question and answer required' }, { status: 400 })
@@ -42,11 +46,28 @@ export async function POST(request: NextRequest) {
 
     const id = crypto.randomUUID()
     const now = new Date()
-    const sourcesJson = sources ? JSON.stringify(sources) : null
+
+    // 테이블이 없으면 생성 시도
+    try {
+      await db.$executeRaw`
+        CREATE TABLE IF NOT EXISTS bookmarks (
+          id TEXT PRIMARY KEY,
+          "userId" TEXT NOT NULL,
+          "messageId" TEXT,
+          question TEXT NOT NULL,
+          answer TEXT NOT NULL,
+          note TEXT,
+          "createdAt" TIMESTAMP DEFAULT NOW()
+        )
+      `
+      await db.$executeRaw`CREATE INDEX IF NOT EXISTS bookmarks_userId_idx ON bookmarks("userId")`
+    } catch (e) {
+      // 이미 존재하면 무시
+    }
 
     await db.$executeRaw`
-      INSERT INTO bookmarks (id, "userId", "messageId", question, answer, sources, note, "createdAt")
-      VALUES (${id}, ${session.user.id}, ${messageId || null}, ${question}, ${answer}, ${sourcesJson}::jsonb, ${note || null}, ${now})
+      INSERT INTO bookmarks (id, "userId", "messageId", question, answer, note, "createdAt")
+      VALUES (${id}, ${session.user.id}, ${messageId || null}, ${question}, ${answer}, ${note || null}, ${now})
     `
 
     return NextResponse.json({ id, success: true })

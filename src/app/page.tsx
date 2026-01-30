@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useSession, signOut } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -15,6 +17,8 @@ interface Meeting {
 }
 
 export default function Home() {
+  const { data: session, status } = useSession()
+  const router = useRouter()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -23,8 +27,16 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    fetchMeetings()
-  }, [])
+    if (status === 'unauthenticated') {
+      router.push('/login')
+    }
+  }, [status, router])
+
+  useEffect(() => {
+    if (session) {
+      fetchMeetings()
+    }
+  }, [session])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -33,6 +45,9 @@ export default function Home() {
   const fetchMeetings = async () => {
     try {
       const res = await fetch('/api/meetings')
+      if (res.status === 401) {
+        return
+      }
       const data = await res.json()
       if (data.meetings) setMeetings(data.meetings)
     } catch (e) {
@@ -52,22 +67,41 @@ export default function Home() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           message: userMessage,
           meetingId: selectedMeeting || undefined
         }),
       })
+
+      if (res.status === 401) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: '로그인이 필요합니다. 다시 로그인해 주세요.'
+        }])
+        setIsLoading(false)
+        return
+      }
+
+      if (res.status === 403) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: '해당 회의에 접근 권한이 없습니다.'
+        }])
+        setIsLoading(false)
+        return
+      }
+
       const data = await res.json()
-      
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
+
+      setMessages(prev => [...prev, {
+        role: 'assistant',
         content: data.response || '응답을 생성할 수 없습니다.',
         sources: data.sources
       }])
     } catch (e) {
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: '오류가 발생했습니다. 다시 시도해주세요.' 
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: '오류가 발생했습니다. 다시 시도해주세요.'
       }])
     }
     setIsLoading(false)
@@ -86,6 +120,24 @@ export default function Home() {
     '지난 주 회의에서 나온 액션 아이템 알려줘',
   ]
 
+  // 로딩 중
+  if (status === 'loading') {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-400">로딩 중...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // 미로그인 상태 - /login으로 리다이렉트
+  if (!session) {
+    return null
+  }
+
+  // 로그인 상태
   return (
     <div className="flex h-screen">
       {/* 사이드바 */}
@@ -95,6 +147,29 @@ export default function Home() {
             💬 미팅챗
           </h1>
           <p className="text-xs text-gray-500 mt-1">회의 내용과 대화하기</p>
+        </div>
+
+        {/* 사용자 정보 */}
+        <div className="p-4 border-b border-gray-800">
+          <div className="flex items-center gap-3">
+            {session.user?.image && (
+              <img
+                src={session.user.image}
+                alt="Profile"
+                className="w-8 h-8 rounded-full"
+              />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{session.user?.name}</p>
+              <p className="text-xs text-gray-500 truncate">{session.user?.email}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => signOut()}
+            className="mt-3 w-full text-xs text-gray-400 hover:text-white py-2 px-3 rounded-lg hover:bg-gray-800 transition-colors"
+          >
+            로그아웃
+          </button>
         </div>
 
         {/* 회의 필터 */}
@@ -117,24 +192,28 @@ export default function Home() {
         {/* 최근 회의 */}
         <div className="flex-1 overflow-y-auto p-4">
           <h3 className="text-xs text-gray-400 mb-3">최근 회의</h3>
-          <div className="space-y-2">
-            {meetings.slice(0, 10).map(m => (
-              <button
-                key={m.id}
-                onClick={() => setSelectedMeeting(m.id)}
-                className={`w-full text-left p-2 rounded-lg text-sm transition-colors ${
-                  selectedMeeting === m.id 
-                    ? 'bg-blue-600/20 text-blue-400' 
-                    : 'hover:bg-gray-800 text-gray-300'
-                }`}
-              >
-                <div className="truncate">{m.title}</div>
-                <div className="text-xs text-gray-500">
-                  {new Date(m.createdAt).toLocaleDateString('ko-KR')}
-                </div>
-              </button>
-            ))}
-          </div>
+          {meetings.length === 0 ? (
+            <p className="text-xs text-gray-500">접근 가능한 회의가 없습니다.</p>
+          ) : (
+            <div className="space-y-2">
+              {meetings.slice(0, 10).map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => setSelectedMeeting(m.id)}
+                  className={`w-full text-left p-2 rounded-lg text-sm transition-colors ${
+                    selectedMeeting === m.id
+                      ? 'bg-blue-600/20 text-blue-400'
+                      : 'hover:bg-gray-800 text-gray-300'
+                  }`}
+                >
+                  <div className="truncate">{m.title}</div>
+                  <div className="text-xs text-gray-500">
+                    {new Date(m.createdAt).toLocaleDateString('ko-KR')}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -149,7 +228,7 @@ export default function Home() {
               <p className="text-gray-400 mb-8 max-w-md">
                 전사된 회의 내용을 AI가 분석하여 필요한 정보를 찾아드립니다
               </p>
-              
+
               <div className="space-y-2">
                 <p className="text-xs text-gray-500 mb-2">예시 질문</p>
                 {exampleQuestions.map((q, i) => (
@@ -168,12 +247,12 @@ export default function Home() {
               {messages.map((msg, i) => (
                 <div key={i} className={`chat-message flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                    msg.role === 'user' 
-                      ? 'bg-blue-600 text-white' 
+                    msg.role === 'user'
+                      ? 'bg-blue-600 text-white'
                       : 'bg-gray-800 text-gray-100'
                   }`}>
                     <div className="whitespace-pre-wrap">{msg.content}</div>
-                    
+
                     {/* 출처 표시 */}
                     {msg.sources && msg.sources.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-gray-700">
@@ -189,7 +268,7 @@ export default function Home() {
                   </div>
                 </div>
               ))}
-              
+
               {isLoading && (
                 <div className="flex justify-start">
                   <div className="bg-gray-800 rounded-2xl px-4 py-3">

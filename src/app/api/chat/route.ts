@@ -1,6 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { searchByVector, searchByKeyword } from '@/lib/db'
+import { checkMeetingAccess, getAccessibleMeetingIds } from '@/lib/meeting-access'
 import Anthropic from '@anthropic-ai/sdk'
 
 export const dynamic = 'force-dynamic'
@@ -12,17 +15,41 @@ const anthropic = new Anthropic({
 
 export async function POST(request: NextRequest) {
   try {
+    // 인증 확인
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: '로그인이 필요합니다.' },
+        { status: 401 }
+      )
+    }
+
+    const userId = session.user.id
     const { message, meetingId } = await request.json()
 
     if (!message) {
       return NextResponse.json({ error: 'Message required' }, { status: 400 })
     }
 
-    console.log(`💬 [Chat] Query: "${message.slice(0, 50)}..." | Meeting: ${meetingId || 'all'}`)
+    // 특정 회의가 선택된 경우 접근 권한 확인
+    if (meetingId) {
+      const hasAccess = await checkMeetingAccess(meetingId, userId)
+      if (!hasAccess) {
+        return NextResponse.json(
+          { error: '해당 회의에 접근 권한이 없습니다.' },
+          { status: 403 }
+        )
+      }
+    }
+
+    // 접근 가능한 회의 ID 조회
+    const accessibleMeetingIds = await getAccessibleMeetingIds(userId)
+
+    console.log(`💬 [Chat] Query: "${message.slice(0, 50)}..." | Meeting: ${meetingId || 'all'} | User: ${userId}`)
 
     // 1. 벡터 검색
-    const searchResults = (await searchTranscripts(message, meetingId)) as any[]
-    
+    const searchResults = (await searchTranscripts(message, accessibleMeetingIds, meetingId)) as any[]
+
     console.log(`🔍 [Chat] Found ${searchResults.length} relevant chunks`)
 
     // 2. 검색 결과가 없으면 안내 메시지
@@ -63,8 +90,8 @@ ${message}
       ]
     })
 
-    const aiResponse = response.content[0].type === 'text' 
-      ? response.content[0].text 
+    const aiResponse = response.content[0].type === 'text'
+      ? response.content[0].text
       : '응답을 생성할 수 없습니다.'
 
     // 5. 출처 정보 구성
@@ -87,7 +114,11 @@ ${message}
   }
 }
 
-async function searchTranscripts(searchQuery: string, meetingId?: string): Promise<any[]> {
+async function searchTranscripts(
+  searchQuery: string,
+  accessibleMeetingIds: string[],
+  meetingId?: string
+): Promise<any[]> {
   try {
     // OpenAI 임베딩 생성
     const embeddingResponse = await fetch('https://api.openai.com/v1/embeddings', {
@@ -107,42 +138,46 @@ async function searchTranscripts(searchQuery: string, meetingId?: string): Promi
 
     if (!embedding) {
       console.error('Failed to generate embedding')
-      return fallbackKeywordSearch(searchQuery, meetingId)
+      return fallbackKeywordSearch(searchQuery, accessibleMeetingIds, meetingId)
     }
 
     // 벡터 검색
-    const results = (await searchByVector(embedding, meetingId)) as any[]
-    
+    const results = (await searchByVector(embedding, accessibleMeetingIds, meetingId)) as any[]
+
     // 높은 유사도만 필터링 (0.65 이상)
     const filtered = results.filter((r: any) => r.similarity >= 0.65)
-    
+
     console.log(`📊 [Search] Vector search: ${results.length} total, ${filtered.length} high-similarity (>=0.65)`)
-    
+
     // 유사도 높은 결과가 없으면 키워드 검색 시도
     if (filtered.length === 0) {
-      return fallbackKeywordSearch(searchQuery, meetingId)
+      return fallbackKeywordSearch(searchQuery, accessibleMeetingIds, meetingId)
     }
-    
+
     return filtered
 
   } catch (error) {
     console.error('Vector search error:', error)
-    return fallbackKeywordSearch(searchQuery, meetingId)
+    return fallbackKeywordSearch(searchQuery, accessibleMeetingIds, meetingId)
   }
 }
 
-async function fallbackKeywordSearch(searchQuery: string, meetingId?: string): Promise<any[]> {
+async function fallbackKeywordSearch(
+  searchQuery: string,
+  accessibleMeetingIds: string[],
+  meetingId?: string
+): Promise<any[]> {
   console.log('🔤 [Search] Falling back to keyword search')
-  
+
   // 한글 키워드 추출 (2자 이상)
   const keywords = searchQuery
     .split(/\s+/)
     .filter(w => w.length >= 2)
     .slice(0, 5)
-  
+
   if (keywords.length === 0) return []
 
-  const results = (await searchByKeyword(keywords, meetingId)) as any[]
+  const results = (await searchByKeyword(keywords, accessibleMeetingIds, meetingId)) as any[]
   return results
 }
 
@@ -163,7 +198,7 @@ function buildContext(results: any[]) {
     const date = first.meetingDate ? new Date(first.meetingDate).toLocaleDateString('ko-KR') : ''
     const title = first.meetingTitle || first.entityType || '회의'
     context += `\n### ${title} ${date ? `(${date})` : ''}\n`
-    
+
     chunks.forEach((chunk: any) => {
       context += `${chunk.content}\n`
     })

@@ -5,18 +5,29 @@ declare global {
   var __db: PrismaClient | undefined
 }
 
+// Prevent multiple Prisma clients in development
 let db: PrismaClient
 
+// Neon Serverless adapter를 사용한 Prisma 클라이언트 설정
 function createPrismaClient(): PrismaClient {
   const connectionString = process.env.STORAGE_DATABASE_URL || process.env.DATABASE_URL
 
-  // Neon adapter 사용 (serverless 환경)
+  // Neon adapter 사용 (serverless 환경에서 안정적인 연결 유지)
   if (connectionString?.includes('neon.tech')) {
     const adapter = new PrismaNeon({ connectionString })
-    return new PrismaClient({ adapter })
+
+    return new PrismaClient({
+      adapter,
+      log: process.env.NODE_ENV === 'production' ? ['error'] : ['error', 'warn'],
+      errorFormat: 'pretty',
+    })
   }
 
-  return new PrismaClient()
+  // 일반 PostgreSQL (로컬 개발 등)
+  return new PrismaClient({
+    log: process.env.NODE_ENV === 'production' ? ['error'] : ['query', 'error', 'warn'],
+    errorFormat: 'pretty',
+  })
 }
 
 if (process.env.NODE_ENV === 'production') {

@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { searchByVector, searchByKeyword, getProjectMeetingIds } from '@/lib/db'
+import { db, searchByVector, searchByKeyword, getProjectMeetingIds } from '@/lib/db'
 import { checkMeetingAccess, getAccessibleMeetingIds } from '@/lib/meeting-access'
 import Anthropic from '@anthropic-ai/sdk'
 
@@ -25,11 +25,36 @@ export async function POST(request: NextRequest) {
     }
 
     const userId = session.user.id
-    const { message, meetingId, projectId } = await request.json()
+    const { message, meetingId, projectId, sessionId } = await request.json()
 
     if (!message) {
       return NextResponse.json({ error: 'Message required' }, { status: 400 })
     }
+
+    // 세션 ID 처리 (없으면 새로 생성)
+    let currentSessionId = sessionId
+    const now = new Date()
+    
+    if (!currentSessionId) {
+      currentSessionId = crypto.randomUUID()
+      await db.$executeRaw`
+        INSERT INTO chat_sessions (id, "userId", "meetingId", "projectId", "createdAt", "updatedAt", "lastMessageAt")
+        VALUES (${currentSessionId}, ${userId}, ${meetingId || null}, ${projectId || null}, ${now}, ${now}, ${now})
+      `
+    } else {
+      // 기존 세션 업데이트
+      await db.$executeRaw`
+        UPDATE chat_sessions SET "lastMessageAt" = ${now}, "updatedAt" = ${now}
+        WHERE id = ${currentSessionId}
+      `
+    }
+
+    // 사용자 메시지 저장
+    const userMsgId = crypto.randomUUID()
+    await db.$executeRaw`
+      INSERT INTO chat_messages (id, "sessionId", role, content, "createdAt")
+      VALUES (${userMsgId}, ${currentSessionId}, 'user', ${message}, ${now})
+    `
 
     // 특정 회의가 선택된 경우 접근 권한 확인
     if (meetingId) {
@@ -60,9 +85,16 @@ export async function POST(request: NextRequest) {
 
     // 2. 검색 결과가 없으면 안내 메시지
     if (searchResults.length === 0) {
+      const noResultMsg = '관련된 회의 내용을 찾을 수 없습니다. 다른 키워드로 질문해 주세요.'
+      const noResultMsgId = crypto.randomUUID()
+      await db.$executeRaw`
+        INSERT INTO chat_messages (id, "sessionId", role, content, "createdAt")
+        VALUES (${noResultMsgId}, ${currentSessionId}, 'assistant', ${noResultMsg}, ${new Date()})
+      `
       return NextResponse.json({
-        response: '관련된 회의 내용을 찾을 수 없습니다. 다른 키워드로 질문해 주세요.',
-        sources: []
+        response: noResultMsg,
+        sources: [],
+        sessionId: currentSessionId
       })
     }
 
@@ -106,9 +138,25 @@ ${message}
       content: r.content.slice(0, 150) + '...'
     }))
 
+    // 6. AI 응답 저장
+    const aiMsgId = crypto.randomUUID()
+    const sourcesJson = JSON.stringify(sources)
+    await db.$executeRaw`
+      INSERT INTO chat_messages (id, "sessionId", role, content, sources, "createdAt")
+      VALUES (${aiMsgId}, ${currentSessionId}, 'assistant', ${aiResponse}, ${sourcesJson}::jsonb, ${new Date()})
+    `
+
+    // 세션 제목 업데이트 (첫 메시지인 경우)
+    await db.$executeRaw`
+      UPDATE chat_sessions 
+      SET title = ${message.slice(0, 50)}
+      WHERE id = ${currentSessionId} AND title IS NULL
+    `
+
     return NextResponse.json({
       response: aiResponse,
-      sources
+      sources,
+      sessionId: currentSessionId
     })
 
   } catch (error: any) {

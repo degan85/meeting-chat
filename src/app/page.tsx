@@ -24,6 +24,13 @@ interface Project {
   color: string
 }
 
+interface ChatSession {
+  id: string
+  title: string
+  createdAt: string
+  lastMessageAt: string
+}
+
 export default function Home() {
   const { data: session, status } = useSession()
   const router = useRouter()
@@ -32,9 +39,12 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false)
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([])
   const [selectedMeeting, setSelectedMeeting] = useState<string>('')
   const [selectedProject, setSelectedProject] = useState<string>('')
+  const [currentSessionId, setCurrentSessionId] = useState<string>('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<'history' | 'filter'>('history')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -47,6 +57,7 @@ export default function Home() {
     if (session) {
       fetchMeetings()
       fetchProjects()
+      fetchChatSessions()
     }
   }, [session])
 
@@ -76,6 +87,52 @@ export default function Home() {
     }
   }
 
+  const fetchChatSessions = async () => {
+    try {
+      const res = await fetch('/api/sessions')
+      if (res.status === 401) return
+      const data = await res.json()
+      if (data.sessions) setChatSessions(data.sessions)
+    } catch (e) {
+      console.error('Failed to fetch sessions:', e)
+    }
+  }
+
+  const loadSession = async (sessionId: string) => {
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}`)
+      if (!res.ok) return
+      const data = await res.json()
+      setMessages(data.messages || [])
+      setCurrentSessionId(sessionId)
+      setSidebarOpen(false)
+    } catch (e) {
+      console.error('Failed to load session:', e)
+    }
+  }
+
+  const startNewChat = () => {
+    setMessages([])
+    setCurrentSessionId('')
+    setSelectedMeeting('')
+    setSelectedProject('')
+  }
+
+  const deleteSession = async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!confirm('이 대화를 삭제할까요?')) return
+    
+    try {
+      await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' })
+      setChatSessions(prev => prev.filter(s => s.id !== sessionId))
+      if (currentSessionId === sessionId) {
+        startNewChat()
+      }
+    } catch (e) {
+      console.error('Failed to delete session:', e)
+    }
+  }
+
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return
 
@@ -91,7 +148,8 @@ export default function Home() {
         body: JSON.stringify({
           message: userMessage,
           meetingId: selectedMeeting || undefined,
-          projectId: selectedProject || undefined
+          projectId: selectedProject || undefined,
+          sessionId: currentSessionId || undefined
         }),
       })
 
@@ -114,6 +172,12 @@ export default function Home() {
       }
 
       const data = await res.json()
+
+      // 새 세션이 생성된 경우 ID 저장 및 목록 갱신
+      if (data.sessionId && !currentSessionId) {
+        setCurrentSessionId(data.sessionId)
+        fetchChatSessions()
+      }
 
       setMessages(prev => [...prev, {
         role: 'assistant',
@@ -146,6 +210,18 @@ export default function Home() {
     '마케팅 관련 논의 내용 정리해줘',
     '지난 주 회의에서 나온 액션 아이템 알려줘',
   ]
+
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diff = now.getTime() - date.getTime()
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+    
+    if (days === 0) return '오늘'
+    if (days === 1) return '어제'
+    if (days < 7) return `${days}일 전`
+    return date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })
+  }
 
   if (status === 'loading') {
     return (
@@ -207,13 +283,13 @@ export default function Home() {
         {/* 사이드바 */}
         <aside className={`
           fixed lg:static inset-y-0 left-0 z-30
-          w-72 bg-white border-r border-gray-200 shadow-lg lg:shadow-none
+          w-80 bg-white border-r border-gray-200 shadow-lg lg:shadow-none
           transform transition-transform duration-200 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
           flex flex-col
         `}>
           <div className="flex items-center justify-between p-4 border-b border-gray-100 lg:hidden">
-            <span className="font-semibold text-gray-900">필터</span>
+            <span className="font-semibold text-gray-900">메뉴</span>
             <button onClick={() => setSidebarOpen(false)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
               <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -221,63 +297,153 @@ export default function Home() {
             </button>
           </div>
 
-          <div className="p-4 border-b border-gray-100 space-y-4">
-            {/* 프로젝트 선택 */}
-            <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">프로젝트</label>
-              <select
-                value={selectedProject}
-                onChange={(e) => {
-                  setSelectedProject(e.target.value)
-                  setSelectedMeeting('')
-                }}
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-              >
-                <option value="">전체 프로젝트</option>
-                {projects.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* 회의 선택 */}
-            <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">회의</label>
-              <select
-                value={selectedMeeting}
-                onChange={(e) => selectMeeting(e.target.value)}
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-              >
-                <option value="">전체 회의</option>
-                {meetings.map(m => (
-                  <option key={m.id} value={m.id}>{m.title}</option>
-                ))}
-              </select>
-            </div>
+          {/* 새 대화 버튼 */}
+          <div className="p-4">
+            <button
+              onClick={startNewChat}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-colors shadow-sm"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              새 대화
+            </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">최근 회의</h3>
-            {meetings.length === 0 ? (
-              <p className="text-sm text-gray-400">접근 가능한 회의가 없습니다.</p>
-            ) : (
-              <div className="space-y-1">
-                {meetings.slice(0, 10).map(m => (
-                  <button
-                    key={m.id}
-                    onClick={() => selectMeeting(m.id)}
-                    className={`w-full text-left p-3 rounded-xl text-sm transition-all ${
-                      selectedMeeting === m.id
-                        ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200'
-                        : 'hover:bg-gray-50 text-gray-700'
-                    }`}
-                  >
-                    <div className="truncate font-medium">{m.title}</div>
-                    <div className="text-xs text-gray-400 mt-0.5">
-                      {new Date(m.createdAt).toLocaleDateString('ko-KR')}
+          {/* 탭 */}
+          <div className="flex border-b border-gray-100">
+            <button
+              onClick={() => setActiveTab('history')}
+              className={`flex-1 px-4 py-2.5 text-sm font-medium transition-colors ${
+                activeTab === 'history'
+                  ? 'text-indigo-600 border-b-2 border-indigo-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              대화 기록
+            </button>
+            <button
+              onClick={() => setActiveTab('filter')}
+              className={`flex-1 px-4 py-2.5 text-sm font-medium transition-colors ${
+                activeTab === 'filter'
+                  ? 'text-indigo-600 border-b-2 border-indigo-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              필터
+            </button>
+          </div>
+
+          {/* 탭 내용 */}
+          <div className="flex-1 overflow-y-auto">
+            {activeTab === 'history' ? (
+              <div className="p-4">
+                {chatSessions.length === 0 ? (
+                  <div className="text-center py-8">
+                    <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                      </svg>
                     </div>
-                  </button>
-                ))}
+                    <p className="text-sm text-gray-500">아직 대화 기록이 없어요</p>
+                    <p className="text-xs text-gray-400 mt-1">질문을 시작해보세요!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {chatSessions.map(s => (
+                      <button
+                        key={s.id}
+                        onClick={() => loadSession(s.id)}
+                        className={`w-full text-left p-3 rounded-xl text-sm transition-all group ${
+                          currentSessionId === s.id
+                            ? 'bg-indigo-50 ring-1 ring-indigo-200'
+                            : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className={`truncate font-medium ${currentSessionId === s.id ? 'text-indigo-700' : 'text-gray-700'}`}>
+                              {s.title}
+                            </div>
+                            <div className="text-xs text-gray-400 mt-0.5">
+                              {formatDate(s.lastMessageAt || s.createdAt)}
+                            </div>
+                          </div>
+                          <button
+                            onClick={(e) => deleteSession(s.id, e)}
+                            className="p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-200 rounded transition-all"
+                          >
+                            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-4 space-y-4">
+                {/* 프로젝트 선택 */}
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">프로젝트</label>
+                  <select
+                    value={selectedProject}
+                    onChange={(e) => {
+                      setSelectedProject(e.target.value)
+                      setSelectedMeeting('')
+                    }}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                  >
+                    <option value="">전체 프로젝트</option>
+                    {projects.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 회의 선택 */}
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">회의</label>
+                  <select
+                    value={selectedMeeting}
+                    onChange={(e) => selectMeeting(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                  >
+                    <option value="">전체 회의</option>
+                    {meetings.map(m => (
+                      <option key={m.id} value={m.id}>{m.title}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 최근 회의 목록 */}
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">최근 회의</h3>
+                  {meetings.length === 0 ? (
+                    <p className="text-sm text-gray-400">접근 가능한 회의가 없습니다.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {meetings.slice(0, 8).map(m => (
+                        <button
+                          key={m.id}
+                          onClick={() => selectMeeting(m.id)}
+                          className={`w-full text-left p-3 rounded-xl text-sm transition-all ${
+                            selectedMeeting === m.id
+                              ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200'
+                              : 'hover:bg-gray-50 text-gray-700'
+                          }`}
+                        >
+                          <div className="truncate font-medium">{m.title}</div>
+                          <div className="text-xs text-gray-400 mt-0.5">
+                            {new Date(m.createdAt).toLocaleDateString('ko-KR')}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -286,7 +452,7 @@ export default function Home() {
         {/* 메인 영역 */}
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white lg:rounded-tl-2xl lg:border-l lg:border-gray-100">
           {(selectedProject || selectedMeeting) && (
-            <div className="px-4 py-2.5 bg-indigo-50 border-b border-indigo-100 lg:hidden">
+            <div className="px-4 py-2.5 bg-indigo-50 border-b border-indigo-100">
               <p className="text-xs font-medium text-indigo-600">
                 🎯 {selectedProject && projects.find(p => p.id === selectedProject)?.name}
                 {selectedProject && selectedMeeting && ' › '}
@@ -325,7 +491,6 @@ export default function Home() {
                 {messages.map((msg, i) => (
                   <div key={i} className="mb-8">
                     {msg.role === 'user' ? (
-                      /* 질문 */
                       <div className="flex items-start gap-3 mb-4">
                         <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
                           <span className="text-indigo-600 text-sm font-bold">Q</span>
@@ -335,7 +500,6 @@ export default function Home() {
                         </div>
                       </div>
                     ) : (
-                      /* 답변 */
                       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                         <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
                           <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center">
@@ -354,16 +518,12 @@ export default function Home() {
                             prose-pre:bg-gray-50 prose-pre:border prose-pre:border-gray-200
                             prose-blockquote:border-indigo-300 prose-blockquote:text-gray-500
                             prose-a:text-indigo-600 prose-a:no-underline hover:prose-a:underline
-                            prose-table:text-sm
-                            prose-th:bg-gray-50 prose-th:px-3 prose-th:py-2 prose-th:font-semibold
-                            prose-td:px-3 prose-td:py-2 prose-td:border-gray-200
                           ">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>
                               {msg.content}
                             </ReactMarkdown>
                           </div>
 
-                          {/* 출처 */}
                           {msg.sources && msg.sources.length > 0 && (
                             <div className="mt-6 pt-4 border-t border-gray-100">
                               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
@@ -428,13 +588,6 @@ export default function Home() {
                   전송
                 </button>
               </div>
-              {(selectedProject || selectedMeeting) && (
-                <p className="text-xs text-gray-400 mt-2 hidden lg:block">
-                  🎯 {selectedProject && `프로젝트: ${projects.find(p => p.id === selectedProject)?.name}`}
-                  {selectedProject && selectedMeeting && ' | '}
-                  {selectedMeeting && `회의: ${meetings.find(m => m.id === selectedMeeting)?.title}`}
-                </p>
-              )}
             </div>
           </div>
         </main>

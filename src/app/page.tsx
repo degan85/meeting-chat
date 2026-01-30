@@ -10,6 +10,7 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   sources?: { title: string; content: string }[]
+  suggestions?: string[]
 }
 
 interface Meeting {
@@ -269,7 +270,8 @@ export default function Home() {
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: data.response || '응답을 생성할 수 없습니다.',
-        sources: data.sources
+        sources: data.sources,
+        suggestions: data.suggestions
       }])
     } catch (e) {
       setMessages(prev => [...prev, {
@@ -706,6 +708,26 @@ export default function Home() {
                                     <div className="font-semibold text-gray-700 mb-1">{src.title}</div>
                                     <div className="text-gray-500 line-clamp-2">{src.content}</div>
                                   </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 후속 질문 제안 */}
+                          {msg.suggestions && msg.suggestions.length > 0 && (
+                            <div className="mt-6 pt-4 border-t border-gray-100">
+                              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                                <span>💡</span> 이것도 물어보세요
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {msg.suggestions.map((suggestion, j) => (
+                                  <button
+                                    key={j}
+                                    onClick={() => setInput(suggestion)}
+                                    className="text-sm px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors text-left"
+                                  >
+                                    {suggestion}
+                                  </button>
                                 ))}
                               </div>
                             </div>

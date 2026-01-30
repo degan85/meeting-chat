@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
     // 4. Claude Sonnet으로 응답 생성
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 1500,
+      max_tokens: 1800,
       messages: [
         {
           role: 'user',
@@ -123,14 +123,35 @@ ${context}
 ## 사용자 질문
 ${message}
 
+## 응답 형식
+답변 후 마지막에 반드시 아래 형식으로 후속 질문 2-3개를 제안하세요:
+
+---SUGGESTIONS---
+- 후속 질문 1
+- 후속 질문 2
+- 후속 질문 3
+
 위 검색 결과를 바탕으로 답변해주세요.`
         }
       ]
     })
 
-    const aiResponse = response.content[0].type === 'text'
+    let aiResponse = response.content[0].type === 'text'
       ? response.content[0].text
       : '응답을 생성할 수 없습니다.'
+
+    // 후속 질문 파싱
+    let suggestions: string[] = []
+    const suggestionsMatch = aiResponse.match(/---SUGGESTIONS---\s*([\s\S]*?)$/i)
+    if (suggestionsMatch) {
+      suggestions = suggestionsMatch[1]
+        .split('\n')
+        .map(line => line.replace(/^[-•*]\s*/, '').trim())
+        .filter(line => line.length > 0)
+        .slice(0, 3)
+      // 응답에서 후속 질문 부분 제거
+      aiResponse = aiResponse.replace(/---SUGGESTIONS---[\s\S]*$/i, '').trim()
+    }
 
     // 5. 출처 정보 구성
     const sources = searchResults.slice(0, 3).map((r: any) => ({
@@ -156,6 +177,7 @@ ${message}
     return NextResponse.json({
       response: aiResponse,
       sources,
+      suggestions,
       sessionId: currentSessionId
     })
 

@@ -16,7 +16,6 @@ export async function GET() {
         cs.id,
         cs.title,
         cs."meetingId",
-        cs."projectId",
         cs."createdAt",
         cs."lastMessageAt",
         (SELECT content FROM chat_messages WHERE "sessionId" = cs.id ORDER BY "createdAt" ASC LIMIT 1) as "firstMessage"
@@ -31,7 +30,6 @@ export async function GET() {
         id: s.id,
         title: s.title || s.firstMessage?.slice(0, 30) + '...' || '새 대화',
         meetingId: s.meetingId,
-        projectId: s.projectId,
         createdAt: s.createdAt,
         lastMessageAt: s.lastMessageAt
       }))
@@ -50,13 +48,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { meetingId, projectId } = await request.json()
+    const { meetingId } = await request.json()
     const id = crypto.randomUUID()
     const now = new Date()
 
     await db.$executeRaw`
-      INSERT INTO chat_sessions (id, "userId", "meetingId", "projectId", "createdAt", "updatedAt")
-      VALUES (${id}, ${session.user.id}, ${meetingId || null}, ${projectId || null}, ${now}, ${now})
+      INSERT INTO chat_sessions (id, "userId", "meetingId", "createdAt", "updatedAt")
+      VALUES (${id}, ${session.user.id}, ${meetingId || null}, ${now}, ${now})
     `
 
     return NextResponse.json({ sessionId: id })

@@ -38,8 +38,8 @@ export async function POST(request: NextRequest) {
     if (!currentSessionId) {
       currentSessionId = crypto.randomUUID()
       await db.$executeRaw`
-        INSERT INTO chat_sessions (id, "userId", "meetingId", "projectId", "createdAt", "updatedAt", "lastMessageAt")
-        VALUES (${currentSessionId}, ${userId}, ${meetingId || null}, ${projectId || null}, ${now}, ${now}, ${now})
+        INSERT INTO chat_sessions (id, "userId", "meetingId", "createdAt", "updatedAt", "lastMessageAt")
+        VALUES (${currentSessionId}, ${userId}, ${meetingId || null}, ${now}, ${now}, ${now})
       `
     } else {
       // 기존 세션 업데이트

@@ -141,7 +141,6 @@ model ChatSession {
   id            String        @id @default(cuid())
   userId        String
   meetingId     String?
-  projectId     String?
   title         String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt

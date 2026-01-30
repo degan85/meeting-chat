@@ -21,7 +21,6 @@ model User {
   accounts      Account[]
   sessions      Session[]
   meetings      Meeting[]
-  sharedMeetings MeetingShare[] @relation("SharedWith")
 
   @@map("users")
 }
@@ -55,23 +54,23 @@ model Session {
 }
 
 model Meeting {
-  id                String    @id
+  id                String         @id
   userId            String
   title             String
   description       String?
   duration          Int?
-  status            String    @default("processing")
-  language          String    @default("ko")
+  status            String         @default("processing")
+  language          String         @default("ko")
   audioUrl          String?
   audioSize         Int?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
   completedAt       DateTime?
-  completedChunks   Int?      @default(0)
-  isChunked         Boolean   @default(false)
+  completedChunks   Int?           @default(0)
+  isChunked         Boolean        @default(false)
   totalAudioSize    Int?
   totalChunks       Int?
-  transcribedChunks Int?      @default(0)
+  transcribedChunks Int?           @default(0)
 
   user   User           @relation(fields: [userId], references: [id])
   shares MeetingShare[]
@@ -80,16 +79,19 @@ model Meeting {
 }
 
 model MeetingShare {
-  id         String   @id @default(cuid())
-  meetingId  String
-  userId     String
-  permission String   @default("view")
-  createdAt  DateTime @default(now())
+  id             String    @id @default(cuid())
+  meetingId      String
+  sharedBy       String?
+  sharedWith     String?
+  shareUrl       String?
+  permissions    String?
+  accessCount    Int?      @default(0)
+  lastAccessedAt DateTime?
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
 
   meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  user    User    @relation("SharedWith", fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([meetingId, userId])
   @@map("meeting_shares")
 }
 

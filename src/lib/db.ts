@@ -56,6 +56,7 @@ export async function searchByVector(
 
     if (meetingId) {
       // 특정 회의에서 검색
+      // meeting은 entityId로, transcript는 metadata의 meetingId로 필터링
       results = await db.$queryRaw`
         SELECT
           si.content,
@@ -65,28 +66,36 @@ export async function searchByVector(
           m."createdAt" as "meetingDate",
           1 - (si.embedding <=> ${embeddingStr}::vector) as similarity
         FROM search_index si
-        LEFT JOIN meetings m ON si."entityId" = m.id
+        LEFT JOIN meetings m ON m.id = ${meetingId}
         WHERE si.embedding IS NOT NULL
           AND si."entityType" IN ('meeting', 'transcript')
-          AND si."entityId" = ${meetingId}
+          AND (
+            (si."entityType" = 'meeting' AND si."entityId" = ${meetingId})
+            OR (si."entityType" = 'transcript' AND si.metadata->>'meetingId' = ${meetingId})
+          )
         ORDER BY si.embedding <=> ${embeddingStr}::vector
         LIMIT ${limit}
       `
     } else if (accessibleMeetingIds && accessibleMeetingIds.length > 0) {
       // 접근 가능한 회의들에서만 검색
+      // meeting은 entityId로, transcript는 metadata의 meetingId로 필터링
       results = await db.$queryRaw`
         SELECT
           si.content,
           si."entityId",
           si."entityType",
-          m.title as "meetingTitle",
-          m."createdAt" as "meetingDate",
+          COALESCE(m.title, m2.title) as "meetingTitle",
+          COALESCE(m."createdAt", m2."createdAt") as "meetingDate",
           1 - (si.embedding <=> ${embeddingStr}::vector) as similarity
         FROM search_index si
-        LEFT JOIN meetings m ON si."entityId" = m.id
+        LEFT JOIN meetings m ON si."entityType" = 'meeting' AND si."entityId" = m.id
+        LEFT JOIN meetings m2 ON si."entityType" = 'transcript' AND si.metadata->>'meetingId' = m2.id
         WHERE si.embedding IS NOT NULL
           AND si."entityType" IN ('meeting', 'transcript')
-          AND si."entityId" = ANY(${accessibleMeetingIds})
+          AND (
+            (si."entityType" = 'meeting' AND si."entityId" = ANY(${accessibleMeetingIds}))
+            OR (si."entityType" = 'transcript' AND si.metadata->>'meetingId' = ANY(${accessibleMeetingIds}))
+          )
         ORDER BY si.embedding <=> ${embeddingStr}::vector
         LIMIT ${limit}
       `
@@ -114,6 +123,7 @@ export async function searchByKeyword(
 
     if (meetingId) {
       // 특정 회의에서 검색
+      // meeting은 entityId로, transcript는 metadata의 meetingId로 필터링
       return await db.$queryRaw`
         SELECT
           si.content,
@@ -122,28 +132,36 @@ export async function searchByKeyword(
           m.title as "meetingTitle",
           m."createdAt" as "meetingDate"
         FROM search_index si
-        LEFT JOIN meetings m ON si."entityId" = m.id
+        LEFT JOIN meetings m ON m.id = ${meetingId}
         WHERE si."entityType" IN ('meeting', 'transcript')
-          AND si."entityId" = ${meetingId}
+          AND (
+            (si."entityType" = 'meeting' AND si."entityId" = ${meetingId})
+            OR (si."entityType" = 'transcript' AND si.metadata->>'meetingId' = ${meetingId})
+          )
           AND si.content ILIKE ANY(${pattern})
         ORDER BY m."createdAt" DESC NULLS LAST
         LIMIT ${limit}
       `
     } else if (accessibleMeetingIds && accessibleMeetingIds.length > 0) {
       // 접근 가능한 회의들에서만 검색
+      // meeting은 entityId로, transcript는 metadata의 meetingId로 필터링
       return await db.$queryRaw`
         SELECT
           si.content,
           si."entityId",
           si."entityType",
-          m.title as "meetingTitle",
-          m."createdAt" as "meetingDate"
+          COALESCE(m.title, m2.title) as "meetingTitle",
+          COALESCE(m."createdAt", m2."createdAt") as "meetingDate"
         FROM search_index si
-        LEFT JOIN meetings m ON si."entityId" = m.id
+        LEFT JOIN meetings m ON si."entityType" = 'meeting' AND si."entityId" = m.id
+        LEFT JOIN meetings m2 ON si."entityType" = 'transcript' AND si.metadata->>'meetingId' = m2.id
         WHERE si."entityType" IN ('meeting', 'transcript')
-          AND si."entityId" = ANY(${accessibleMeetingIds})
+          AND (
+            (si."entityType" = 'meeting' AND si."entityId" = ANY(${accessibleMeetingIds}))
+            OR (si."entityType" = 'transcript' AND si.metadata->>'meetingId' = ANY(${accessibleMeetingIds}))
+          )
           AND si.content ILIKE ANY(${pattern})
-        ORDER BY m."createdAt" DESC NULLS LAST
+        ORDER BY COALESCE(m."createdAt", m2."createdAt") DESC NULLS LAST
         LIMIT ${limit}
       `
     }

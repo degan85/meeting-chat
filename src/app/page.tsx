@@ -78,9 +78,10 @@ export default function Home() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const fetchMeetings = async () => {
+  const fetchMeetings = async (projectId?: string) => {
     try {
-      const res = await fetch('/api/meetings')
+      const url = projectId ? `/api/meetings?projectId=${projectId}` : '/api/meetings'
+      const res = await fetch(url)
       if (res.status === 401) return
       const data = await res.json()
       if (data.meetings) setMeetings(data.meetings)
@@ -574,8 +575,10 @@ export default function Home() {
                   <select
                     value={selectedProject}
                     onChange={(e) => {
-                      setSelectedProject(e.target.value)
+                      const projectId = e.target.value
+                      setSelectedProject(projectId)
                       setSelectedMeeting('')
+                      fetchMeetings(projectId || undefined)
                     }}
                     className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
                   >

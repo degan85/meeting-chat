@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Analytics } from '@vercel/analytics/next'
 import SessionProvider from '@/components/providers/SessionProvider'
 import './globals.css'
 
@@ -12,6 +13,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ko">
       <body className="bg-gray-950 text-white min-h-screen">
         <SessionProvider>{children}</SessionProvider>
+        <Analytics />
       </body>
     </html>
   )

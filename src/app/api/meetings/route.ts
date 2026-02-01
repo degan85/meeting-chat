@@ -1,14 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { getMeetings } from '@/lib/db'
+import { getMeetings, getProjectMeetingIds } from '@/lib/db'
 import { getAccessibleMeetingIds } from '@/lib/meeting-access'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     // 인증 확인
     const session = await getServerSession(authOptions)
@@ -19,8 +19,18 @@ export async function GET() {
       )
     }
 
+    // 프로젝트 ID 파라미터 확인
+    const { searchParams } = new URL(request.url)
+    const projectId = searchParams.get('projectId')
+
     // 접근 가능한 회의 ID 조회
-    const accessibleMeetingIds = await getAccessibleMeetingIds(session.user.id)
+    let accessibleMeetingIds = await getAccessibleMeetingIds(session.user.id)
+
+    // 프로젝트가 선택된 경우 해당 프로젝트 회의만 필터링
+    if (projectId) {
+      const projectMeetings = await getProjectMeetingIds(projectId)
+      accessibleMeetingIds = accessibleMeetingIds.filter(id => projectMeetings.includes(id))
+    }
 
     // 접근 가능한 회의 목록 조회
     const meetings = (await getMeetings(accessibleMeetingIds)) as any[]
@@ -29,7 +39,7 @@ export async function GET() {
       meetings: meetings.map((m: any) => ({
         id: m.id,
         title: m.title || '제목 없음',
-        date: m.createdAt
+        createdAt: m.createdAt
       }))
     })
   } catch (error: any) {

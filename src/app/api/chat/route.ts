@@ -4,6 +4,12 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { db, searchByVector, searchByKeyword, getProjectMeetingIds } from '@/lib/db'
 import { checkMeetingAccess, getAccessibleMeetingIds } from '@/lib/meeting-access'
+import { 
+  detectActionItemIntent, 
+  parseStatusFilter, 
+  getActionItemsForChat, 
+  formatActionItemsForContext 
+} from '@/lib/action-items'
 import Anthropic from '@anthropic-ai/sdk'
 
 export const dynamic = 'force-dynamic'
@@ -78,13 +84,35 @@ export async function POST(request: NextRequest) {
 
     console.log(`💬 [Chat] Query: "${message.slice(0, 50)}..." | Meeting: ${meetingId || 'all'} | Project: ${projectId || 'all'} | User: ${userId}`)
 
-    // 1. 벡터 검색
-    const searchResults = (await searchTranscripts(message, accessibleMeetingIds, meetingId)) as any[]
+    // ========================================
+    // 액션 아이템 의도 감지
+    // ========================================
+    const isActionItemQuery = detectActionItemIntent(message)
+    let actionItemContext = ''
+    
+    if (isActionItemQuery) {
+      console.log(`📋 [Chat] Action item intent detected`)
+      
+      const statusFilter = parseStatusFilter(message)
+      const actionItems = await getActionItemsForChat(userId, {
+        projectId: projectId || undefined,
+        meetingId: meetingId || undefined,
+        status: statusFilter,
+        assigneeOnly: message.includes('내') || message.includes('나의') || message.includes('담당')
+      })
+      
+      console.log(`📋 [Chat] Found ${actionItems.length} action items (status: ${statusFilter})`)
+      actionItemContext = formatActionItemsForContext(actionItems)
+    }
 
+    // ========================================
+    // 벡터 검색 (회의 내용)
+    // ========================================
+    const searchResults = (await searchTranscripts(message, accessibleMeetingIds, meetingId)) as any[]
     console.log(`🔍 [Chat] Found ${searchResults.length} relevant chunks`)
 
-    // 2. 검색 결과가 없으면 안내 메시지
-    if (searchResults.length === 0) {
+    // 검색 결과도 없고 액션 아이템도 없으면 안내 메시지
+    if (searchResults.length === 0 && !actionItemContext) {
       const noResultMsg = '관련된 회의 내용을 찾을 수 없습니다. 다른 키워드로 질문해 주세요.'
       const noResultMsgId = crypto.randomUUID()
       await db.$executeRaw`
@@ -98,27 +126,34 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // 3. 컨텍스트 구성
-    const context = buildContext(searchResults)
+    // ========================================
+    // 컨텍스트 구성
+    // ========================================
+    const meetingContext = buildContext(searchResults)
+    
+    // 통합 컨텍스트 (회의 내용 + 액션 아이템)
+    let fullContext = ''
+    if (meetingContext && meetingContext !== '검색된 내용 없음') {
+      fullContext += `## 검색된 회의 내용\n${meetingContext}\n\n`
+    }
+    if (actionItemContext) {
+      fullContext += `${actionItemContext}\n`
+    }
 
-    // 4. Claude Sonnet으로 응답 생성
+    // ========================================
+    // Claude Sonnet으로 응답 생성
+    // ========================================
+    const systemPrompt = buildSystemPrompt(isActionItemQuery)
+    
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1800,
       messages: [
         {
           role: 'user',
-          content: `당신은 회의 전사 내용을 분석하는 AI 어시스턴트입니다.
+          content: `${systemPrompt}
 
-## 규칙
-1. 아래 "검색된 회의 내용"에 있는 정보만 사용하세요.
-2. 검색 결과에 없는 내용은 절대 지어내지 마세요.
-3. 정보를 찾을 수 없으면 "해당 내용을 찾을 수 없습니다"라고 답하세요.
-4. 답변은 한국어로 간결하게 작성하세요.
-5. 가능하면 출처(회의명, 날짜)를 언급하세요.
-
-## 검색된 회의 내용
-${context}
+${fullContext}
 
 ## 사용자 질문
 ${message}
@@ -131,7 +166,7 @@ ${message}
 - 후속 질문 2
 - 후속 질문 3
 
-위 검색 결과를 바탕으로 답변해주세요.`
+위 정보를 바탕으로 답변해주세요.`
         }
       ]
     })
@@ -153,13 +188,13 @@ ${message}
       aiResponse = aiResponse.replace(/---SUGGESTIONS---[\s\S]*$/i, '').trim()
     }
 
-    // 5. 출처 정보 구성
+    // 출처 정보 구성
     const sources = searchResults.slice(0, 3).map((r: any) => ({
       title: r.meetingTitle || r.entityType || '회의',
       content: r.content.slice(0, 150) + '...'
     }))
 
-    // 6. AI 응답 저장
+    // AI 응답 저장
     const aiMsgId = crypto.randomUUID()
     await db.$executeRaw`
       INSERT INTO chat_messages (id, "sessionId", role, content, "createdAt")
@@ -187,6 +222,35 @@ ${message}
       { status: 500 }
     )
   }
+}
+
+/**
+ * 시스템 프롬프트 생성
+ */
+function buildSystemPrompt(includeActionItems: boolean): string {
+  let prompt = `당신은 회의 전사 내용을 분석하는 AI 어시스턴트입니다.
+
+## 규칙
+1. 아래 제공된 정보만 사용하세요.
+2. 정보에 없는 내용은 절대 지어내지 마세요.
+3. 정보를 찾을 수 없으면 "해당 내용을 찾을 수 없습니다"라고 답하세요.
+4. 답변은 한국어로 간결하게 작성하세요.
+5. 가능하면 출처(회의명, 날짜)를 언급하세요.`
+
+  if (includeActionItems) {
+    prompt += `
+
+## 액션 아이템 관련 규칙
+6. 액션 아이템의 상태를 명확히 표시하세요:
+   - ⏳ 진행중 (todo/in_progress)
+   - ✅ 완료 (done)
+   - 🔄 Task로 변환됨
+   - 🐛 Issue로 변환됨
+7. 담당자와 마감일 정보가 있으면 포함하세요.
+8. Task로 변환된 경우 Task의 최신 상태를 우선 표시하세요.`
+  }
+
+  return prompt
 }
 
 async function searchTranscripts(

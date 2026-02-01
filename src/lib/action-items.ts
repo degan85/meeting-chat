@@ -29,9 +29,10 @@ export function detectActionItemIntent(message: string): boolean {
     '액션 아이템', '액션아이템', 'action item', 'actionitem',
     '할 일', '할일', 'todo', '투두',
     '미완료', '완료 안', '안 된', '안된',
+    '완료된', '완료한',
     '담당', '배정', '맡은', '할당',
     '진행 상황', '진행상황', '진행률',
-    '태스크', 'task'
+    '태스크', '테스크', 'task', 'tasks'
   ]
   const lowerMessage = message.toLowerCase()
   return keywords.some(k => lowerMessage.includes(k.toLowerCase()))

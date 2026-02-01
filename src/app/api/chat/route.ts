@@ -7,8 +7,8 @@ import { checkMeetingAccess, getAccessibleMeetingIds } from '@/lib/meeting-acces
 import { 
   detectActionItemIntent, 
   parseStatusFilter, 
-  getActionItemsForChat, 
-  formatActionItemsForContext 
+  getAllTasksAndActionItems, 
+  formatAllForContext 
 } from '@/lib/action-items'
 import Anthropic from '@anthropic-ai/sdk'
 
@@ -85,24 +85,26 @@ export async function POST(request: NextRequest) {
     console.log(`💬 [Chat] Query: "${message.slice(0, 50)}..." | Meeting: ${meetingId || 'all'} | Project: ${projectId || 'all'} | User: ${userId}`)
 
     // ========================================
-    // 액션 아이템 의도 감지
+    // 태스크/액션 아이템 의도 감지
     // ========================================
-    const isActionItemQuery = detectActionItemIntent(message)
-    let actionItemContext = ''
+    const isTaskQuery = detectActionItemIntent(message)
+    let taskContext = ''
     
-    if (isActionItemQuery) {
-      console.log(`📋 [Chat] Action item intent detected`)
+    if (isTaskQuery) {
+      console.log(`📋 [Chat] Task/Action item intent detected`)
       
       const statusFilter = parseStatusFilter(message)
-      const actionItems = await getActionItemsForChat(userId, {
+      const assigneeOnly = message.includes('내') || message.includes('나의') || message.includes('담당')
+      
+      const { tasks, actionItems } = await getAllTasksAndActionItems(userId, {
         projectId: projectId || undefined,
         meetingId: meetingId || undefined,
         status: statusFilter,
-        assigneeOnly: message.includes('내') || message.includes('나의') || message.includes('담당')
+        assigneeOnly
       })
       
-      console.log(`📋 [Chat] Found ${actionItems.length} action items (status: ${statusFilter})`)
-      actionItemContext = formatActionItemsForContext(actionItems)
+      console.log(`📋 [Chat] Found ${tasks.length} tasks, ${actionItems.length} action items (status: ${statusFilter})`)
+      taskContext = formatAllForContext(tasks, actionItems)
     }
 
     // ========================================
@@ -111,8 +113,8 @@ export async function POST(request: NextRequest) {
     const searchResults = (await searchTranscripts(message, accessibleMeetingIds, meetingId)) as any[]
     console.log(`🔍 [Chat] Found ${searchResults.length} relevant chunks`)
 
-    // 검색 결과도 없고 액션 아이템도 없으면 안내 메시지
-    if (searchResults.length === 0 && !actionItemContext) {
+    // 검색 결과도 없고 태스크/액션 아이템도 없으면 안내 메시지
+    if (searchResults.length === 0 && !taskContext) {
       const noResultMsg = '관련된 회의 내용을 찾을 수 없습니다. 다른 키워드로 질문해 주세요.'
       const noResultMsgId = crypto.randomUUID()
       await db.$executeRaw`
@@ -136,14 +138,14 @@ export async function POST(request: NextRequest) {
     if (meetingContext && meetingContext !== '검색된 내용 없음') {
       fullContext += `## 검색된 회의 내용\n${meetingContext}\n\n`
     }
-    if (actionItemContext) {
-      fullContext += `${actionItemContext}\n`
+    if (taskContext) {
+      fullContext += `${taskContext}\n`
     }
 
     // ========================================
     // Claude Sonnet으로 응답 생성
     // ========================================
-    const systemPrompt = buildSystemPrompt(isActionItemQuery)
+    const systemPrompt = buildSystemPrompt(isTaskQuery)
     
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',

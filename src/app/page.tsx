@@ -9,8 +9,13 @@ import remarkGfm from 'remark-gfm'
 interface Message {
   role: 'user' | 'assistant'
   content: string
-  sources?: { title: string; content: string }[]
+  sources?: { title: string; content: string; type?: 'meeting' | 'document' | 'task' }[]
   suggestions?: string[]
+  searchInfo?: {
+    meetingCount: number
+    documentCount: number
+    taskCount: number
+  }
 }
 
 interface Meeting {
@@ -57,6 +62,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<'history' | 'bookmarks' | 'filter'>('history')
   const [isListening, setIsListening] = useState(false)
+  const [searchSource, setSearchSource] = useState<'all' | 'meeting' | 'document' | 'task'>('all')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -277,7 +283,8 @@ export default function Home() {
           message: userMessage,
           meetingId: selectedMeeting || undefined,
           projectId: selectedProject || undefined,
-          sessionId: currentSessionId || undefined
+          sessionId: currentSessionId || undefined,
+          searchSource: searchSource !== 'all' ? searchSource : undefined
         }),
       })
 
@@ -311,7 +318,8 @@ export default function Home() {
         role: 'assistant',
         content: data.response || '응답을 생성할 수 없습니다.',
         sources: data.sources,
-        suggestions: data.suggestions
+        suggestions: data.suggestions,
+        searchInfo: data.searchInfo
       }])
     } catch (e) {
       setMessages(prev => [...prev, {
@@ -569,6 +577,32 @@ export default function Home() {
               </div>
             ) : (
               <div className="p-4 space-y-4">
+                {/* 검색 소스 선택 */}
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">검색 대상</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 'all', label: '전체', icon: '🔍' },
+                      { value: 'meeting', label: '회의록', icon: '🎤' },
+                      { value: 'document', label: '문서', icon: '📄' },
+                      { value: 'task', label: '태스크', icon: '📋' },
+                    ].map(opt => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setSearchSource(opt.value as typeof searchSource)}
+                        className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                          searchSource === opt.value
+                            ? 'bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200'
+                            : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        <span>{opt.icon}</span>
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* 프로젝트 선택 */}
                 <div>
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">프로젝트</label>
@@ -701,11 +735,31 @@ export default function Home() {
                     ) : (
                       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                         <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center">
                               <span className="text-emerald-600 text-xs font-bold">A</span>
                             </div>
                             <span className="text-sm font-medium text-gray-600">AI 응답</span>
+                            {/* 검색 소스 뱃지 */}
+                            {msg.searchInfo && (
+                              <div className="flex items-center gap-1.5 ml-2">
+                                {msg.searchInfo.meetingCount > 0 && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">
+                                    🎤 {msg.searchInfo.meetingCount}
+                                  </span>
+                                )}
+                                {msg.searchInfo.documentCount > 0 && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700">
+                                    📄 {msg.searchInfo.documentCount}
+                                  </span>
+                                )}
+                                {msg.searchInfo.taskCount > 0 && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700">
+                                    📋 {msg.searchInfo.taskCount}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
                           <button
                             onClick={() => {

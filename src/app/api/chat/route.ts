@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     }
 
     const userId = session.user.id
-    const { message, meetingId, projectId, sessionId } = await request.json()
+    const { message, meetingId, projectId, sessionId, searchSource } = await request.json()
 
     if (!message) {
       return NextResponse.json({ error: 'Message required' }, { status: 400 })
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
     console.log(`💬 [Chat] Query: "${message.slice(0, 50)}..." | Meeting: ${meetingId || 'all'} | Project: ${projectId || 'all'} | User: ${userId}`)
 
     // ========================================
-    // 의도 감지 (모두 체크)
+    // 의도 감지 (모두 체크) + 검색 소스 필터
     // ========================================
     const isTaskQuery = detectActionItemIntent(message)
     const isDocumentQuery = detectDocumentIntent(message)
@@ -99,16 +99,21 @@ export async function POST(request: NextRequest) {
     const isStrongTaskIntent = /^(태스크|할\s*일|todo|미완료|진행.?중|완료.?된)/i.test(message.trim())
     const isStrongDocIntent = /^(문서|파일|자료|첨부|업로드)/i.test(message.trim())
     
-    console.log(`🔍 [Chat] Intent: task=${isTaskQuery}(strong=${isStrongTaskIntent}), doc=${isDocumentQuery}(strong=${isStrongDocIntent})`)
+    // 검색 소스 필터 적용
+    const shouldSearchMeeting = !searchSource || searchSource === 'meeting'
+    const shouldSearchTask = !searchSource || searchSource === 'task' || isTaskQuery
+    const shouldSearchDocument = !searchSource || searchSource === 'document' || isDocumentQuery
+    
+    console.log(`🔍 [Chat] Intent: task=${isTaskQuery}, doc=${isDocumentQuery} | Filter: meeting=${shouldSearchMeeting}, task=${shouldSearchTask}, doc=${shouldSearchDocument}`)
 
     // ========================================
-    // 태스크/액션 아이템 검색 (항상 시도, 관련 있을 때만 표시)
+    // 태스크/액션 아이템 검색
     // ========================================
     let taskContext = ''
     let taskCount = 0
     
-    // 강한 의도이거나 약한 의도일 때 검색
-    if (isTaskQuery) {
+    // 검색 소스가 'task'이거나, 필터 없이 태스크 의도 감지 시
+    if (shouldSearchTask && (isTaskQuery || searchSource === 'task')) {
       console.log(`📋 [Chat] Searching tasks...`)
       
       const statusFilter = parseStatusFilter(message)
@@ -130,12 +135,13 @@ export async function POST(request: NextRequest) {
     }
 
     // ========================================
-    // 문서 검색 (항상 시도, 관련 있을 때만 표시)
+    // 문서 검색
     // ========================================
     let documentContext = ''
     let docCount = 0
     
-    if (isDocumentQuery) {
+    // 검색 소스가 'document'이거나, 필터 없이 문서 의도 감지 시
+    if (shouldSearchDocument && (isDocumentQuery || searchSource === 'document')) {
       console.log(`📄 [Chat] Searching documents...`)
       
       const docResults = await searchDocuments(message)
@@ -150,8 +156,11 @@ export async function POST(request: NextRequest) {
     // ========================================
     // 벡터 검색 (회의 내용)
     // ========================================
-    const searchResults = (await searchTranscripts(message, accessibleMeetingIds, meetingId)) as any[]
-    console.log(`🔍 [Chat] Found ${searchResults.length} relevant chunks`)
+    let searchResults: any[] = []
+    if (shouldSearchMeeting) {
+      searchResults = (await searchTranscripts(message, accessibleMeetingIds, meetingId)) as any[]
+      console.log(`🎤 [Chat] Found ${searchResults.length} meeting chunks`)
+    }
 
     // 검색 결과도 없고 태스크/액션 아이템도 없고 문서도 없으면 안내 메시지
     if (searchResults.length === 0 && !taskContext && !documentContext) {
@@ -261,7 +270,12 @@ ${message}
       response: aiResponse,
       sources,
       suggestions,
-      sessionId: currentSessionId
+      sessionId: currentSessionId,
+      searchInfo: {
+        meetingCount: searchResults.length,
+        documentCount: docCount,
+        taskCount: taskCount
+      }
     })
 
   } catch (error: any) {

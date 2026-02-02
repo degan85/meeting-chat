@@ -10,6 +10,11 @@ import {
   getAllTasksAndActionItems, 
   formatAllForContext 
 } from '@/lib/action-items'
+import {
+  detectDocumentIntent,
+  searchDocuments,
+  formatDocumentsForContext
+} from '@/lib/document-search'
 import Anthropic from '@anthropic-ai/sdk'
 
 export const dynamic = 'force-dynamic'
@@ -108,13 +113,30 @@ export async function POST(request: NextRequest) {
     }
 
     // ========================================
+    // 문서 검색 의도 감지
+    // ========================================
+    const isDocumentQuery = detectDocumentIntent(message)
+    let documentContext = ''
+    
+    if (isDocumentQuery) {
+      console.log(`📄 [Chat] Document search intent detected`)
+      
+      const docResults = await searchDocuments(message)
+      
+      if (docResults.length > 0) {
+        console.log(`📄 [Chat] Found ${docResults.length} documents`)
+        documentContext = formatDocumentsForContext(docResults)
+      }
+    }
+
+    // ========================================
     // 벡터 검색 (회의 내용)
     // ========================================
     const searchResults = (await searchTranscripts(message, accessibleMeetingIds, meetingId)) as any[]
     console.log(`🔍 [Chat] Found ${searchResults.length} relevant chunks`)
 
-    // 검색 결과도 없고 태스크/액션 아이템도 없으면 안내 메시지
-    if (searchResults.length === 0 && !taskContext) {
+    // 검색 결과도 없고 태스크/액션 아이템도 없고 문서도 없으면 안내 메시지
+    if (searchResults.length === 0 && !taskContext && !documentContext) {
       const noResultMsg = '관련된 회의 내용을 찾을 수 없습니다. 다른 키워드로 질문해 주세요.'
       const noResultMsgId = crypto.randomUUID()
       await db.$executeRaw`
@@ -133,13 +155,16 @@ export async function POST(request: NextRequest) {
     // ========================================
     const meetingContext = buildContext(searchResults)
     
-    // 통합 컨텍스트 (회의 내용 + 액션 아이템)
+    // 통합 컨텍스트 (회의 내용 + 액션 아이템 + 문서)
     let fullContext = ''
     if (meetingContext && meetingContext !== '검색된 내용 없음') {
       fullContext += `## 검색된 회의 내용\n${meetingContext}\n\n`
     }
     if (taskContext) {
       fullContext += `${taskContext}\n`
+    }
+    if (documentContext) {
+      fullContext += `${documentContext}\n`
     }
 
     // ========================================

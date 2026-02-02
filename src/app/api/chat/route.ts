@@ -90,13 +90,26 @@ export async function POST(request: NextRequest) {
     console.log(`💬 [Chat] Query: "${message.slice(0, 50)}..." | Meeting: ${meetingId || 'all'} | Project: ${projectId || 'all'} | User: ${userId}`)
 
     // ========================================
-    // 태스크/액션 아이템 의도 감지
+    // 의도 감지 (모두 체크)
     // ========================================
     const isTaskQuery = detectActionItemIntent(message)
-    let taskContext = ''
+    const isDocumentQuery = detectDocumentIntent(message)
     
+    // 강한 의도 감지 (명시적 키워드)
+    const isStrongTaskIntent = /^(태스크|할\s*일|todo|미완료|진행.?중|완료.?된)/i.test(message.trim())
+    const isStrongDocIntent = /^(문서|파일|자료|첨부|업로드)/i.test(message.trim())
+    
+    console.log(`🔍 [Chat] Intent: task=${isTaskQuery}(strong=${isStrongTaskIntent}), doc=${isDocumentQuery}(strong=${isStrongDocIntent})`)
+
+    // ========================================
+    // 태스크/액션 아이템 검색 (항상 시도, 관련 있을 때만 표시)
+    // ========================================
+    let taskContext = ''
+    let taskCount = 0
+    
+    // 강한 의도이거나 약한 의도일 때 검색
     if (isTaskQuery) {
-      console.log(`📋 [Chat] Task/Action item intent detected`)
+      console.log(`📋 [Chat] Searching tasks...`)
       
       const statusFilter = parseStatusFilter(message)
       const assigneeOnly = message.includes('내') || message.includes('나의') || message.includes('담당')
@@ -108,23 +121,28 @@ export async function POST(request: NextRequest) {
         assigneeOnly
       })
       
-      console.log(`📋 [Chat] Found ${tasks.length} tasks, ${actionItems.length} action items (status: ${statusFilter})`)
-      taskContext = formatAllForContext(tasks, actionItems)
+      taskCount = tasks.length + actionItems.length
+      console.log(`📋 [Chat] Found ${tasks.length} tasks, ${actionItems.length} action items`)
+      
+      if (taskCount > 0) {
+        taskContext = formatAllForContext(tasks, actionItems)
+      }
     }
 
     // ========================================
-    // 문서 검색 의도 감지
+    // 문서 검색 (항상 시도, 관련 있을 때만 표시)
     // ========================================
-    const isDocumentQuery = detectDocumentIntent(message)
     let documentContext = ''
+    let docCount = 0
     
     if (isDocumentQuery) {
-      console.log(`📄 [Chat] Document search intent detected`)
+      console.log(`📄 [Chat] Searching documents...`)
       
       const docResults = await searchDocuments(message)
+      docCount = docResults.length
       
-      if (docResults.length > 0) {
-        console.log(`📄 [Chat] Found ${docResults.length} documents`)
+      if (docCount > 0) {
+        console.log(`📄 [Chat] Found ${docCount} documents`)
         documentContext = formatDocumentsForContext(docResults)
       }
     }
@@ -170,7 +188,11 @@ export async function POST(request: NextRequest) {
     // ========================================
     // Claude Sonnet으로 응답 생성
     // ========================================
-    const systemPrompt = buildSystemPrompt(isTaskQuery)
+    const systemPrompt = buildSystemPrompt({
+      hasTask: taskCount > 0,
+      hasDoc: docCount > 0,
+      hasMeeting: searchResults.length > 0
+    })
     
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -254,27 +276,40 @@ ${message}
 /**
  * 시스템 프롬프트 생성
  */
-function buildSystemPrompt(includeActionItems: boolean): string {
-  let prompt = `당신은 회의 전사 내용을 분석하는 AI 어시스턴트입니다.
+function buildSystemPrompt(options: { hasTask: boolean, hasDoc: boolean, hasMeeting: boolean }): string {
+  let prompt = `당신은 프로젝트 관련 정보를 통합 검색해주는 AI 어시스턴트입니다.
 
 ## 규칙
 1. 아래 제공된 정보만 사용하세요.
 2. 정보에 없는 내용은 절대 지어내지 마세요.
 3. 정보를 찾을 수 없으면 "해당 내용을 찾을 수 없습니다"라고 답하세요.
 4. 답변은 한국어로 간결하게 작성하세요.
-5. 가능하면 출처(회의명, 날짜)를 언급하세요.`
+5. 여러 소스(회의록, 태스크, 문서)에서 정보가 있으면 구분해서 답변하세요.`
 
-  if (includeActionItems) {
+  if (options.hasTask) {
     prompt += `
 
-## 액션 아이템 관련 규칙
-6. 액션 아이템의 상태를 명확히 표시하세요:
-   - ⏳ 진행중 (todo/in_progress)
-   - ✅ 완료 (done)
-   - 🔄 Task로 변환됨
-   - 🐛 Issue로 변환됨
-7. 담당자와 마감일 정보가 있으면 포함하세요.
-8. Task로 변환된 경우 Task의 최신 상태를 우선 표시하세요.`
+## 📋 태스크/액션 아이템 표시 규칙
+- ⏳ 진행중 (todo/in_progress)
+- ✅ 완료 (done)
+- 🔄 Task로 변환됨
+- 담당자와 마감일 정보가 있으면 포함하세요.`
+  }
+
+  if (options.hasDoc) {
+    prompt += `
+
+## 📄 문서 표시 규칙
+- 문서 제목과 출처(meeting-mind 또는 schedule-manager)를 명시하세요.
+- 관련 내용 요약을 포함하세요.`
+  }
+
+  if (options.hasMeeting) {
+    prompt += `
+
+## 🎤 회의록 표시 규칙
+- 회의명과 날짜를 언급하세요.
+- 발언자가 명시된 경우 포함하세요.`
   }
 
   return prompt

@@ -80,9 +80,12 @@ export async function POST(request: NextRequest) {
 
     // Schedule Manager에서 프로젝트/참석자 컨텍스트 가져오기
     let scheduleContext: any = null
-    if (meetingId) {
-      const scheduleManagerUrl = process.env.SCHEDULE_MANAGER_URL
-      if (scheduleManagerUrl) {
+    const scheduleManagerUrl = process.env.SCHEDULE_MANAGER_URL
+    console.log(`📋 [Chat] Schedule Manager URL: ${scheduleManagerUrl ? 'set' : 'NOT SET'}, meetingId: ${meetingId || 'none'}, projectId: ${projectId || 'none'}`)
+    
+    if (scheduleManagerUrl) {
+      // meetingId가 있으면 해당 미팅 컨텍스트 조회
+      if (meetingId) {
         try {
           const contextRes = await fetch(
             `${scheduleManagerUrl}/api/meeting-schedules/by-meeting/${meetingId}`,
@@ -95,11 +98,40 @@ export async function POST(request: NextRequest) {
             const data = await contextRes.json()
             if (data.found) {
               scheduleContext = data
-              console.log(`📋 [Chat] Loaded Schedule Manager context: ${data.attendees?.length || 0} attendees`)
+              console.log(`📋 [Chat] Loaded meeting context: ${data.attendees?.length || 0} attendees`)
             }
           }
         } catch (error) {
-          console.log(`⚠️ [Chat] Schedule Manager fetch failed:`, error)
+          console.log(`⚠️ [Chat] Schedule Manager meeting fetch failed:`, error)
+        }
+      }
+      
+      // projectId가 있고 meetingId 컨텍스트가 없으면 프로젝트 참여자 조회
+      if (projectId && !scheduleContext) {
+        try {
+          const contextRes = await fetch(
+            `${scheduleManagerUrl}/api/projects/${projectId}/context`,
+            { 
+              headers: { 'Content-Type': 'application/json' },
+              cache: 'no-store'
+            }
+          )
+          if (contextRes.ok) {
+            const data = await contextRes.json()
+            if (data.found) {
+              scheduleContext = {
+                found: true,
+                project: data.project,
+                attendees: data.participants || [],
+                departments: data.companies?.flatMap((c: any) => 
+                  (c.departments || []).map((d: any) => ({ ...d, company: c.name }))
+                ) || []
+              }
+              console.log(`📋 [Chat] Loaded project context: ${data.participants?.length || 0} participants`)
+            }
+          }
+        } catch (error) {
+          console.log(`⚠️ [Chat] Schedule Manager project fetch failed:`, error)
         }
       }
     }

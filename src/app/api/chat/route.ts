@@ -78,6 +78,32 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Schedule Manager에서 프로젝트/참석자 컨텍스트 가져오기
+    let scheduleContext: any = null
+    if (meetingId) {
+      const scheduleManagerUrl = process.env.SCHEDULE_MANAGER_URL
+      if (scheduleManagerUrl) {
+        try {
+          const contextRes = await fetch(
+            `${scheduleManagerUrl}/api/meeting-schedules/by-meeting/${meetingId}`,
+            { 
+              headers: { 'Content-Type': 'application/json' },
+              cache: 'no-store'
+            }
+          )
+          if (contextRes.ok) {
+            const data = await contextRes.json()
+            if (data.found) {
+              scheduleContext = data
+              console.log(`📋 [Chat] Loaded Schedule Manager context: ${data.attendees?.length || 0} attendees`)
+            }
+          }
+        } catch (error) {
+          console.log(`⚠️ [Chat] Schedule Manager fetch failed:`, error)
+        }
+      }
+    }
+
     // 접근 가능한 회의 ID 조회
     let accessibleMeetingIds = await getAccessibleMeetingIds(userId)
 
@@ -182,8 +208,44 @@ export async function POST(request: NextRequest) {
     // ========================================
     const meetingContext = buildContext(searchResults)
     
-    // 통합 컨텍스트 (회의 내용 + 액션 아이템 + 문서)
+    // 통합 컨텍스트 (회의 내용 + 액션 아이템 + 문서 + 참석자)
     let fullContext = ''
+    
+    // Schedule Manager 참석자/프로젝트 정보
+    if (scheduleContext) {
+      fullContext += `## 미팅 정보\n`
+      if (scheduleContext.schedule) {
+        fullContext += `- 제목: ${scheduleContext.schedule.title}\n`
+        fullContext += `- 일시: ${scheduleContext.schedule.date} ${scheduleContext.schedule.time}\n`
+        if (scheduleContext.schedule.location) {
+          fullContext += `- 장소: ${scheduleContext.schedule.location}\n`
+        }
+      }
+      if (scheduleContext.project) {
+        fullContext += `\n## 프로젝트\n`
+        fullContext += `- 이름: ${scheduleContext.project.name}\n`
+        if (scheduleContext.project.description) {
+          fullContext += `- 설명: ${scheduleContext.project.description}\n`
+        }
+      }
+      if (scheduleContext.attendees && scheduleContext.attendees.length > 0) {
+        fullContext += `\n## 참석자 (${scheduleContext.attendees.length}명)\n`
+        scheduleContext.attendees.forEach((a: any) => {
+          const info = [a.name]
+          if (a.position) info.push(a.position)
+          if (a.company) info.push(a.company)
+          fullContext += `- ${info.join(' / ')}\n`
+        })
+      }
+      if (scheduleContext.departments && scheduleContext.departments.length > 0) {
+        fullContext += `\n## 참여 부서\n`
+        scheduleContext.departments.forEach((d: any) => {
+          fullContext += `- ${d.company ? `${d.company} - ` : ''}${d.name}\n`
+        })
+      }
+      fullContext += `\n`
+    }
+    
     if (meetingContext && meetingContext !== '검색된 내용 없음') {
       fullContext += `## 검색된 회의 내용\n${meetingContext}\n\n`
     }
